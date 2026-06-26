@@ -1,31 +1,33 @@
+import itertools
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
 
 
-def make_mock_response(content: str) -> MagicMock:
+def make_mock_openai(responses=None):
+    mock_client = MagicMock()
     mock_usage = MagicMock()
     mock_usage.total_tokens = 10
-    mock_choice = MagicMock()
-    mock_choice.message.content = content
-    mock_response = MagicMock()
-    mock_response.choices = [mock_choice]
-    mock_response.usage = mock_usage
-    return mock_response
 
+    def make_response(content):
+        mock_choice = MagicMock()
+        mock_choice.message.content = content
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_response.usage = mock_usage
+        return mock_response
 
-def make_mock_openai():
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(
-        side_effect=[
-            make_mock_response("mocked response"),
-            make_mock_response("Your name is Alice."),
-            make_mock_response("mocked response"),
-            make_mock_response("mocked response"),
-            make_mock_response("mocked response"),
-        ]
-    )
+    if responses is None:
+        # Cycle "mocked response" indefinitely
+        response_iter = itertools.cycle(["mocked response"])
+    else:
+        response_iter = iter(responses)
+
+    async def create_side_effect(*args, **kwargs):
+        return make_response(next(response_iter))
+
+    mock_client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
     return mock_client
 
 
