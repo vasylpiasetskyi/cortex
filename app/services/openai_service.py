@@ -54,4 +54,7 @@ class OpenAIService:
             )
         except Exception as exc:
             raise OpenAIServiceError(str(exc)) from exc
-        return response.choices[0].message.parsed
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
+            raise OpenAIServiceError("Model returned no structured output")
+        return parsed
