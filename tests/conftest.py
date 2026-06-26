@@ -1,10 +1,26 @@
+import pytest
 import pytest_asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
+
+
+def make_mock_openai():
+    mock_client = MagicMock()
+    mock_usage = MagicMock()
+    mock_usage.total_tokens = 10
+    mock_choice = MagicMock()
+    mock_choice.message.content = "mocked response"
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = mock_usage
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    return mock_client
 
 
 @pytest_asyncio.fixture
 async def client():
-    from app.main import app
-    async with app.router.lifespan_context(app):
+    with patch("app.services.openai_service.AsyncOpenAI", return_value=make_mock_openai()):
+        from app.main import app
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            yield c
+            async with app.router.lifespan_context(app):
+                yield c
