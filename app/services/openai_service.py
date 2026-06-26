@@ -1,7 +1,10 @@
-from typing import AsyncGenerator
+from typing import AsyncGenerator, TypeVar, Type
 
 from loguru import logger
 from openai import AsyncOpenAI
+from pydantic import BaseModel as PydanticModel
+
+T = TypeVar("T", bound=PydanticModel)
 
 
 class OpenAIServiceError(Exception):
@@ -41,3 +44,14 @@ class OpenAIService:
                     yield delta
         except Exception as exc:
             raise OpenAIServiceError(str(exc)) from exc
+
+    async def extract_structured(self, prompt: str, schema: Type[T]) -> T:
+        try:
+            response = await self.client.beta.chat.completions.parse(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format=schema,
+            )
+        except Exception as exc:
+            raise OpenAIServiceError(str(exc)) from exc
+        return response.choices[0].message.parsed

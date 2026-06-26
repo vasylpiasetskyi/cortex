@@ -24,3 +24,14 @@ async def test_chat_remembers_history(client):
     assert data["session_id"] == "history-test-1"
     # Verify the endpoint works across multiple calls without breaking
     assert len(data["answer"]) > 0
+
+
+async def test_extract_person(client):
+    response = await client.post(
+        "/extract",
+        json={"text": "John Smith is 35 years old"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "John Smith"
+    assert data["age"] == 35

@@ -52,6 +52,19 @@ def make_mock_openai(responses=None):
             return make_response(next(response_iter))
 
     mock_client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
+
+    mock_person = MagicMock()
+    mock_person.name = "John Smith"
+    mock_person.age = 35
+    mock_parse_choice = MagicMock()
+    mock_parse_choice.message.parsed = mock_person
+    mock_parse_response = MagicMock()
+    mock_parse_response.choices = [mock_parse_choice]
+    mock_client.beta = MagicMock()
+    mock_client.beta.chat = MagicMock()
+    mock_client.beta.chat.completions = MagicMock()
+    mock_client.beta.chat.completions.parse = AsyncMock(return_value=mock_parse_response)
+
     return mock_client
 
 

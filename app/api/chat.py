@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 from sse_starlette.sse import EventSourceResponse
 
-from app.models.schemas import ChatRequest, ChatResponse
+from app.models.schemas import ChatRequest, ChatResponse, ExtractRequest, Person
 
 router = APIRouter()
 
@@ -22,3 +22,9 @@ async def stream_chat(body: ChatRequest, request: Request) -> EventSourceRespons
             yield {"data": chunk}
 
     return EventSourceResponse(generate())
+
+
+@router.post("/extract", response_model=Person)
+async def extract(body: ExtractRequest, request: Request) -> Person:
+    openai_service = request.app.state.chat_service.openai
+    return await openai_service.extract_structured(body.text, Person)
