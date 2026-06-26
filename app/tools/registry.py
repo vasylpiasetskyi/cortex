@@ -29,5 +29,8 @@ def execute_tool(name: str, arguments_json: str) -> str:
     fn = TOOL_REGISTRY.get(name)
     if fn is None:
         return f"Unknown tool: {name}"
-    args = json.loads(arguments_json)
-    return fn(**args)
+    try:
+        args = json.loads(arguments_json)
+        return fn(**args)
+    except Exception as exc:
+        return f"Tool execution error: {exc}"

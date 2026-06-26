@@ -18,8 +18,11 @@ async def stream_chat(body: ChatRequest, request: Request) -> EventSourceRespons
     chat_service = request.app.state.chat_service
 
     async def generate():
-        async for chunk in chat_service.handle_stream(body.session_id, body.message):
-            yield {"data": chunk}
+        try:
+            async for chunk in chat_service.handle_stream(body.session_id, body.message):
+                yield {"data": chunk}
+        except Exception as exc:
+            yield {"event": "error", "data": str(exc)}
 
     return EventSourceResponse(generate())
 

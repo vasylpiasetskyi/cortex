@@ -62,11 +62,11 @@ class ChatService:
     async def handle_stream(self, session_id: str, message: str) -> AsyncGenerator[str, None]:
         history = await self.conv.get_history(session_id)
         history.append({"role": "user", "content": message})
-        await self.conv.save_message(session_id, "user", message)
 
         full_response = ""
         async for chunk in self.openai.stream(history):
             full_response += chunk
             yield chunk
 
+        await self.conv.save_message(session_id, "user", message)
         await self.conv.save_message(session_id, "assistant", full_response)
