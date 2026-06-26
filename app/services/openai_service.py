@@ -1,3 +1,5 @@
+from typing import AsyncGenerator
+
 from loguru import logger
 from openai import AsyncOpenAI
 
@@ -22,3 +24,17 @@ class OpenAIService:
         tokens = response.usage.total_tokens if response.usage else 0
         logger.debug(f"complete tokens={tokens}")
         return response.choices[0].message.content or ""
+
+    async def stream(self, messages: list[dict]) -> AsyncGenerator[str, None]:
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                stream=True,
+            )
+        except Exception as exc:
+            raise OpenAIServiceError(str(exc)) from exc
+        async for chunk in response:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta

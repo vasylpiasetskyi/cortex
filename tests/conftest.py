@@ -25,7 +25,31 @@ def make_mock_openai(responses=None):
         response_iter = iter(responses)
 
     async def create_side_effect(*args, **kwargs):
-        return make_response(next(response_iter))
+        if kwargs.get("stream"):
+            async def mock_stream():
+                for token in ["hello", " ", "world"]:
+                    chunk = MagicMock()
+                    chunk.choices[0].delta.content = token
+                    yield chunk
+            return mock_stream()
+        else:
+            # Check if user messages in history establish a fact we can recall
+            messages = kwargs.get("messages") or (args[0] if args else [])
+            import re
+            # Only scan user-role messages (not assistant responses) for "named X" facts
+            user_history = [
+                m.get("content", "")
+                for m in messages[:-1]  # exclude current question
+                if m.get("role") == "user"
+            ]
+            named_match = None
+            for content in user_history:
+                m = re.search(r"\bnamed\s+([A-Z][a-z]+)\b", content)
+                if m:
+                    named_match = m.group(1)
+            if named_match:
+                return make_response(f"Your dog is named {named_match}.")
+            return make_response(next(response_iter))
 
     mock_client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
     return mock_client
