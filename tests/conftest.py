@@ -33,23 +33,45 @@ def make_mock_openai(responses=None):
                     yield chunk
             return mock_stream()
         else:
-            # Check if user messages in history establish a fact we can recall
             messages = kwargs.get("messages") or (args[0] if args else [])
-            import re
-            # Only scan user-role messages (not assistant responses) for "named X" facts
-            user_history = [
-                m.get("content", "")
-                for m in messages[:-1]  # exclude current question
-                if m.get("role") == "user"
-            ]
-            named_match = None
-            for content in user_history:
-                m = re.search(r"\bnamed\s+([A-Z][a-z]+)\b", content)
-                if m:
-                    named_match = m.group(1)
-            if named_match:
-                return make_response(f"Your dog is named {named_match}.")
-            return make_response(next(response_iter))
+            last_user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+            if "weather" in last_user_msg.lower() and not any(m.get("role") == "tool" for m in messages):
+                # First call: return tool_calls response
+                mock_tool_call = MagicMock()
+                mock_tool_call.id = "call_123"
+                mock_tool_call.function.name = "get_weather"
+                mock_tool_call.function.arguments = '{"city": "Warsaw"}'
+                mock_choice = MagicMock()
+                mock_choice.message.content = None
+                mock_choice.finish_reason = "tool_calls"
+                mock_choice.message.tool_calls = [mock_tool_call]
+                mock_response = MagicMock()
+                mock_response.choices = [mock_choice]
+                mock_response.usage.total_tokens = 15
+                return mock_response
+            else:
+                # Normal response (including second call after tool result)
+                # Check if user messages in history establish a fact we can recall
+                import re
+                # Only scan user-role messages (not assistant responses) for "named X" facts
+                user_history = [
+                    m.get("content", "")
+                    for m in messages[:-1]  # exclude current question
+                    if m.get("role") == "user"
+                ]
+                named_match = None
+                for content in user_history:
+                    m = re.search(r"\bnamed\s+([A-Z][a-z]+)\b", content)
+                    if m:
+                        named_match = m.group(1)
+                if named_match:
+                    return make_response(f"Your dog is named {named_match}.")
+                # If there's a tool result in history, respond using it
+                tool_results = [m for m in messages if m.get("role") == "tool"]
+                if tool_results:
+                    tool_content = tool_results[-1].get("content", "")
+                    return make_response(f"The weather information: {tool_content}")
+                return make_response(next(response_iter))
 
     mock_client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
 

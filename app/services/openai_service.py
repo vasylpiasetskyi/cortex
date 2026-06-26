@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import AsyncGenerator, TypeVar, Type
 
 from loguru import logger
@@ -9,6 +10,14 @@ T = TypeVar("T", bound=PydanticModel)
 
 class OpenAIServiceError(Exception):
     pass
+
+
+@dataclass
+class CompletionResult:
+    content: str | None
+    finish_reason: str
+    tool_calls: list | None
+    tokens: int = 0
 
 
 class OpenAIService:
@@ -44,6 +53,25 @@ class OpenAIService:
                     yield delta
         except Exception as exc:
             raise OpenAIServiceError(str(exc)) from exc
+
+    async def complete_with_tools(
+        self, messages: list[dict], tools: list[dict]
+    ) -> CompletionResult:
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+            )
+        except Exception as exc:
+            raise OpenAIServiceError(str(exc)) from exc
+        choice = response.choices[0]
+        return CompletionResult(
+            content=choice.message.content,
+            finish_reason=choice.finish_reason,
+            tool_calls=choice.message.tool_calls,
+            tokens=response.usage.total_tokens if response.usage else 0,
+        )
 
     async def extract_structured(self, prompt: str, schema: Type[T]) -> T:
         try:

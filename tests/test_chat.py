@@ -35,3 +35,15 @@ async def test_extract_person(client):
     data = response.json()
     assert data["name"] == "John Smith"
     assert data["age"] == 35
+
+
+async def test_weather_tool_called(client):
+    response = await client.post(
+        "/chat",
+        json={"session_id": "weather-test-1", "message": "What is the weather in Warsaw?"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    # Mocked tool returns "22°C, partly cloudy" — must appear in answer
+    answer = data["answer"]
+    assert "22" in answer or "cloudy" in answer or "partly" in answer
