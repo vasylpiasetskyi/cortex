@@ -28,9 +28,11 @@ class ConversationService:
             session.add(Message(session_id=session_id, role=role, content=content))
             await session.commit()
         key = _CACHE_KEY.format(session_id=session_id)
-        await self.redis.rpush(key, json.dumps({"role": role, "content": content}))
-        await self.redis.ltrim(key, -_MAX_MESSAGES, -1)
-        await self.redis.expire(key, _CACHE_TTL)
+        async with self.redis.pipeline(transaction=False) as pipe:
+            pipe.rpush(key, json.dumps({"role": role, "content": content}))
+            pipe.ltrim(key, -_MAX_MESSAGES, -1)
+            pipe.expire(key, _CACHE_TTL)
+            await pipe.execute()
 
     async def _load_from_postgres(self, session_id: str) -> list[dict]:
         async with self.session_factory() as session:
@@ -47,6 +49,7 @@ class ConversationService:
                 pipe.delete(key)
                 for msg in history:
                     pipe.rpush(key, json.dumps(msg))
+                pipe.ltrim(key, -_MAX_MESSAGES, -1)
                 pipe.expire(key, _CACHE_TTL)
                 await pipe.execute()
         return history
