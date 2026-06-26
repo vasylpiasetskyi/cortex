@@ -34,7 +34,10 @@ class OpenAIService:
             )
         except Exception as exc:
             raise OpenAIServiceError(str(exc)) from exc
-        async for chunk in response:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+        try:
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        except Exception as exc:
+            raise OpenAIServiceError(str(exc)) from exc
