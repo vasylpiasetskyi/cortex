@@ -21,6 +21,6 @@ def make_mock_openai():
 async def client():
     with patch("app.services.openai_service.AsyncOpenAI", return_value=make_mock_openai()):
         from app.main import app
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            async with app.router.lifespan_context(app):
+        async with app.router.lifespan_context(app):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 yield c
