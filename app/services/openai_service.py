@@ -42,6 +42,57 @@ class OpenAIService:
         except Exception as exc:
             raise OpenAIServiceError(str(exc)) from exc
 
+    async def stream_with_tools_support(
+        self, messages: list[dict], tools: list[dict]
+    ) -> AsyncGenerator[str | CompletionResult, None]:
+        """Yields str tokens during streaming, then a final CompletionResult with tool_calls if needed."""
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                stream=True,
+            )
+        except Exception as exc:
+            raise OpenAIServiceError(str(exc)) from exc
+
+        tool_calls_acc: dict[int, dict] = {}
+        content_acc = ""
+        finish_reason = "stop"
+
+        try:
+            async for chunk in response:
+                choice = chunk.choices[0]
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                delta = choice.delta
+                if delta.content:
+                    content_acc += delta.content
+                    yield delta.content
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {
+                                "id": "",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        if tc.id:
+                            tool_calls_acc[idx]["id"] = tc.id
+                        if tc.function and tc.function.name:
+                            tool_calls_acc[idx]["function"]["name"] = tc.function.name
+                        if tc.function and tc.function.arguments:
+                            tool_calls_acc[idx]["function"]["arguments"] += tc.function.arguments
+        except Exception as exc:
+            raise OpenAIServiceError(str(exc)) from exc
+
+        yield CompletionResult(
+            content=content_acc,
+            finish_reason=finish_reason,
+            tool_calls=list(tool_calls_acc.values()) if tool_calls_acc else None,
+        )
+
     async def complete_with_tools(
         self, messages: list[dict], tools: list[dict]
     ) -> CompletionResult:
