@@ -1,6 +1,6 @@
 import pytest_asyncio
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.models.db import Base

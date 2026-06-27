@@ -37,9 +37,7 @@ class ConversationService:
     async def _load_from_postgres(self, session_id: str) -> list[dict]:
         async with self.session_factory() as session:
             result = await session.execute(
-                select(Message)
-                .where(Message.session_id == session_id)
-                .order_by(Message.created_at)
+                select(Message).where(Message.session_id == session_id).order_by(Message.created_at)
             )
             rows = result.scalars().all()
         history = [{"role": m.role, "content": m.content} for m in rows]

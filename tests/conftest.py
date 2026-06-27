@@ -1,8 +1,8 @@
 import itertools
-import pytest
-import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-from httpx import AsyncClient, ASGITransport
+
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
 
 
 def make_mock_openai(responses=None):
@@ -18,24 +18,26 @@ def make_mock_openai(responses=None):
         mock_response.usage = mock_usage
         return mock_response
 
-    if responses is None:
-        # Cycle "mocked response" indefinitely
-        response_iter = itertools.cycle(["mocked response"])
-    else:
-        response_iter = iter(responses)
+    response_iter = itertools.cycle(["mocked response"]) if responses is None else iter(responses)
 
     async def create_side_effect(*args, **kwargs):
         if kwargs.get("stream"):
+
             async def mock_stream():
                 for token in ["hello", " ", "world"]:
                     chunk = MagicMock()
                     chunk.choices[0].delta.content = token
                     yield chunk
+
             return mock_stream()
         else:
             messages = kwargs.get("messages") or (args[0] if args else [])
-            last_user_msg = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
-            if "weather" in last_user_msg.lower() and not any(m.get("role") == "tool" for m in messages):
+            last_user_msg = next(
+                (m["content"] for m in reversed(messages) if m.get("role") == "user"), ""
+            )
+            if "weather" in last_user_msg.lower() and not any(
+                m.get("role") == "tool" for m in messages
+            ):
                 # First call: return tool_calls response
                 mock_tool_call = MagicMock()
                 mock_tool_call.id = "call_123"
@@ -53,6 +55,7 @@ def make_mock_openai(responses=None):
                 # Normal response (including second call after tool result)
                 # Check if user messages in history establish a fact we can recall
                 import re
+
                 # Only scan user-role messages (not assistant responses) for "named X" facts
                 user_history = [
                     m.get("content", "")
@@ -94,6 +97,8 @@ def make_mock_openai(responses=None):
 async def client():
     with patch("app.services.openai_service.AsyncOpenAI", return_value=make_mock_openai()):
         from app.main import app
-        async with app.router.lifespan_context(app):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                yield c
+
+        async with app.router.lifespan_context(app), AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            yield c

@@ -1,6 +1,5 @@
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -11,7 +10,7 @@ async def test_stream_returns_chunks(client):
     )
     assert response.status_code == 200
     assert "text/event-stream" in response.headers["content-type"]
-    lines = [l for l in response.text.split("\n") if l.startswith("data:")]
+    lines = [line for line in response.text.split("\n") if line.startswith("data:")]
     assert len(lines) > 0
 
 

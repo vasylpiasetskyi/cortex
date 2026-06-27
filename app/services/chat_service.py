@@ -1,5 +1,5 @@
 import time
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from loguru import logger
 
@@ -26,28 +26,32 @@ class ChatService:
         result = await self.openai.complete_with_tools(history, TOOLS)
 
         while result.finish_reason == "tool_calls" and result.tool_calls:
-            history.append({
-                "role": "assistant",
-                "content": result.content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in result.tool_calls
-                ],
-            })
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": result.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in result.tool_calls
+                    ],
+                }
+            )
             for tc in result.tool_calls:
                 tool_result = execute_tool(tc.function.name, tc.function.arguments)
-                history.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": tool_result,
-                })
+                history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": tool_result,
+                    }
+                )
             result = await self.openai.complete_with_tools(history, TOOLS)
 
         answer = result.content or ""
@@ -79,18 +83,22 @@ class ChatService:
             if result is None or result.finish_reason != "tool_calls" or not result.tool_calls:
                 break
 
-            history.append({
-                "role": "assistant",
-                "content": result.content,
-                "tool_calls": result.tool_calls,
-            })
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": result.content,
+                    "tool_calls": result.tool_calls,
+                }
+            )
             for tc in result.tool_calls:
                 tool_result = execute_tool(tc["function"]["name"], tc["function"]["arguments"])
-                history.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": tool_result,
-                })
+                history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tool_result,
+                    }
+                )
 
         await self.conv.save_message(session_id, "user", message)
         await self.conv.save_message(session_id, "assistant", full_response)

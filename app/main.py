@@ -49,5 +49,6 @@ async def openai_error_handler(request, exc: OpenAIServiceError):
 
 if __name__ == "__main__":
     import uvicorn
+
     # uvicorn.run("app.main:app", reload=True, port=8000)
     uvicorn.run("app.main:app", reload=False, port=8000)

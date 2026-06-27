@@ -1,7 +1,7 @@
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import AsyncGenerator, TypeVar, Type
+from typing import TypeVar
 
-from loguru import logger
 from openai import AsyncOpenAI
 from pydantic import BaseModel as PydanticModel
 
@@ -112,7 +112,7 @@ class OpenAIService:
             tokens=response.usage.total_tokens if response.usage else 0,
         )
 
-    async def extract_structured(self, prompt: str, schema: Type[T]) -> T:
+    async def extract_structured(self, prompt: str, schema: type[T]) -> T:
         try:
             response = await self.client.beta.chat.completions.parse(
                 model=self.model,
