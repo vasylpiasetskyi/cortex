@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.chat import router as chat_router
@@ -30,9 +31,22 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Cortex", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(chat_router)
 
 
 @app.exception_handler(OpenAIServiceError)
 async def openai_error_handler(request, exc: OpenAIServiceError):
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", reload=True, port=8000)
