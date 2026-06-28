@@ -69,7 +69,7 @@ class ChatService:
         await self.conv.save_message(session_id, "assistant", answer)
 
         latency_ms = round((time.monotonic() - start) * 1000)
-        logger.info(f"session={session_id} tokens={result.tokens} latency_ms={latency_ms}")
+        logger.bind(session_id=session_id, tokens=result.tokens, latency_ms=latency_ms).info("chat complete")
         return answer
 
     async def handle_stream(self, session_id: str, message: str) -> AsyncGenerator[str, None]:
@@ -113,4 +113,4 @@ class ChatService:
         await self.conv.save_message(session_id, "assistant", full_response)
 
         latency_ms = round((time.monotonic() - start) * 1000)
-        logger.info(f"session={session_id} latency_ms={latency_ms}")
+        logger.bind(session_id=session_id, latency_ms=latency_ms).info("stream complete")

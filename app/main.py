@@ -1,11 +1,16 @@
+import json
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from loguru import logger
 
 from app.api.chat import router as chat_router
 from app.config import settings
+from app.context import get_request_id
+from app.middleware.request_id import RequestIDMiddleware
 from app.services.chat_service import ChatService
 from app.services.conversation_service import ConversationService
 from app.services.openai_service import OpenAIService, OpenAIServiceError
@@ -13,8 +18,26 @@ from app.storage.postgres import get_engine, get_session_factory, init_db
 from app.storage.redis import get_redis
 
 
+def _json_formatter(record: dict) -> str:
+    entry = {
+        "ts": record["time"].isoformat(),
+        "level": record["level"].name,
+        "msg": record["message"],
+        "request_id": get_request_id(),
+    }
+    entry.update(record["extra"])
+    record["extra"]["_json"] = json.dumps(entry, default=str)
+    return "{extra[_json]}\n"
+
+
+def setup_logging() -> None:
+    logger.remove()
+    logger.add(sys.stderr, format=_json_formatter)
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI):  # noqa: F811
+    setup_logging()
     redis = get_redis(settings.redis_url)
     engine = get_engine(settings.database_url)
     await init_db(engine)
@@ -37,7 +60,9 @@ app.add_middleware(
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
+app.add_middleware(RequestIDMiddleware)
 
 app.include_router(chat_router)
 

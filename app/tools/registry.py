@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 
+from app.tools.calculator import calculate
 from app.tools.weather import get_weather
 
 TOOLS: list[dict] = [
@@ -17,11 +18,29 @@ TOOLS: list[dict] = [
                 "required": ["city"],
             },
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate",
+            "description": "Evaluate a mathematical expression. Use for any arithmetic.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "Math expression, e.g. '2 + 2 * 5' or '(10 + 5) / 3'",
+                    }
+                },
+                "required": ["expression"],
+            },
+        },
+    },
 ]
 
 TOOL_REGISTRY: dict[str, Callable] = {
     "get_weather": get_weather,
+    "calculate": calculate,
 }
 
 
