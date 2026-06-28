@@ -13,20 +13,29 @@ class ChatService:
         self,
         openai_service: OpenAIService,
         conversation_service: ConversationService,
+        system_prompt: str = "You are a helpful assistant.",
     ) -> None:
         self.openai = openai_service
         self.conv = conversation_service
+        self.system_prompt = system_prompt
+
+    def _build_messages(self, history: list[dict], message: str) -> list[dict]:
+        return [
+            {"role": "system", "content": self.system_prompt},
+            *history,
+            {"role": "user", "content": message},
+        ]
 
     async def handle(self, session_id: str, message: str) -> str:
         start = time.monotonic()
 
         history = await self.conv.get_history(session_id)
-        history.append({"role": "user", "content": message})
+        messages = self._build_messages(history, message)
 
-        result = await self.openai.complete_with_tools(history, TOOLS)
+        result = await self.openai.complete_with_tools(messages, TOOLS)
 
         while result.finish_reason == "tool_calls" and result.tool_calls:
-            history.append(
+            messages.append(
                 {
                     "role": "assistant",
                     "content": result.content,
@@ -45,14 +54,14 @@ class ChatService:
             )
             for tc in result.tool_calls:
                 tool_result = execute_tool(tc.function.name, tc.function.arguments)
-                history.append(
+                messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "content": tool_result,
                     }
                 )
-            result = await self.openai.complete_with_tools(history, TOOLS)
+            result = await self.openai.complete_with_tools(messages, TOOLS)
 
         answer = result.content or ""
 
@@ -67,13 +76,13 @@ class ChatService:
         start = time.monotonic()
 
         history = await self.conv.get_history(session_id)
-        history.append({"role": "user", "content": message})
+        messages = self._build_messages(history, message)
 
         full_response = ""
 
         while True:
             result: CompletionResult | None = None
-            async for item in self.openai.stream_with_tools_support(history, TOOLS):
+            async for item in self.openai.stream_with_tools_support(messages, TOOLS):
                 if isinstance(item, CompletionResult):
                     result = item
                 else:
@@ -83,7 +92,7 @@ class ChatService:
             if result is None or result.finish_reason != "tool_calls" or not result.tool_calls:
                 break
 
-            history.append(
+            messages.append(
                 {
                     "role": "assistant",
                     "content": result.content,
@@ -92,7 +101,7 @@ class ChatService:
             )
             for tc in result.tool_calls:
                 tool_result = execute_tool(tc["function"]["name"], tc["function"]["arguments"])
-                history.append(
+                messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc["id"],

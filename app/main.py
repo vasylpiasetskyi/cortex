@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
 
     openai_svc = OpenAIService(settings.openai_api_key, settings.model)
     conv_svc = ConversationService(redis, session_factory)
-    app.state.chat_service = ChatService(openai_svc, conv_svc)
+    app.state.chat_service = ChatService(openai_svc, conv_svc, settings.system_prompt)
 
     yield
 
