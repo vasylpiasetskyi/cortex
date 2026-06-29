@@ -152,3 +152,35 @@ async def test_ask_empty_question_returns_422(rag_client: AsyncClient):
         "question": "",
     })
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_ask_embedding_model_mismatch_returns_409(rag_client: AsyncClient):
+    from app.main import app
+    from datetime import UTC, datetime
+    from app.models.document import Chunk, Document, DocumentStatus
+
+    async with app.state.session_factory() as session:
+        doc = Document(
+            session_id="mismatch-sess",
+            filename="old.pdf",
+            file_path="uploads/old.pdf",
+            file_size=100,
+            status=DocumentStatus.ready,
+            embedding_model="local:paraphrase-multilingual-mpnet-base-v2",
+            created_at=datetime.now(UTC),
+        )
+        session.add(doc)
+        await session.flush()
+        doc_id = doc.id
+        await session.commit()
+
+    resp = await rag_client.post("/ask", json={
+        "session_id": "mismatch-sess",
+        "question": "test question",
+        "document_id": doc_id,
+    })
+    assert resp.status_code == 409
+    body = resp.json()
+    assert "reindex_url" in body["detail"]
+    assert body["detail"]["reindex_url"] == f"/documents/{doc_id}/reindex"
