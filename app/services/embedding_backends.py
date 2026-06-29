@@ -1,3 +1,4 @@
+import asyncio
 from abc import ABC, abstractmethod
 
 from openai import AsyncOpenAI
@@ -34,11 +35,9 @@ class LocalBackend(EmbeddingBackend):
                 "sentence-transformers is required for LocalBackend. "
                 "Install it with: uv add sentence-transformers"
             ) from e
-        import asyncio
 
         self._model_name = model_name
         self._model = SentenceTransformer(model_name)
-        self._loop = asyncio.get_event_loop
         sample = self._model.encode("probe")
         self.vector_size: int = len(sample)
 
@@ -47,17 +46,11 @@ class LocalBackend(EmbeddingBackend):
         return f"local:{self._model_name}"
 
     async def embed(self, text: str) -> list[float]:
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        vector = await loop.run_in_executor(None, self._model.encode, text)
+        vector = await asyncio.to_thread(self._model.encode, text)
         return vector.tolist()
 
     async def embed_batch(self, texts: list[str], batch_size: int = 100) -> list[list[float]]:
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        vectors = await loop.run_in_executor(None, self._model.encode, texts)
+        vectors = await asyncio.to_thread(self._model.encode, texts)
         return [v.tolist() for v in vectors]
 
 
