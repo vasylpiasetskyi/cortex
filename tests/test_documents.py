@@ -111,6 +111,54 @@ async def test_reindex_returns_202(rag_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_index_document_creates_chunks_and_sets_ready(rag_client: AsyncClient):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+
+    from app.main import app
+    from app.models.document import Chunk, Document, DocumentStatus
+
+    async with app.state.session_factory() as session:
+        doc = Document(
+            session_id="idx-sess",
+            filename="sample.pdf",
+            file_path="uploads/sample.pdf",
+            file_size=1000,
+            status=DocumentStatus.indexing,
+            created_at=datetime.now(UTC),
+        )
+        session.add(doc)
+        await session.flush()
+        doc_id = doc.id
+        await session.commit()
+
+    sample_pages = [
+        {"page": 0, "text": "Hello world " * 100},
+        {"page": 1, "text": "Another page " * 100},
+    ]
+
+    doc_svc = app.state.doc_service
+    original_parse = doc_svc._parser.parse
+    doc_svc._parser.parse = lambda path: sample_pages
+    try:
+        await doc_svc._index_document(doc_id)
+    finally:
+        doc_svc._parser.parse = original_parse
+
+    async with app.state.session_factory() as session:
+        doc = await session.get(Document, doc_id)
+        assert doc.status == DocumentStatus.ready
+        assert doc.embedding_model is not None
+
+        result = await session.execute(select(Chunk).where(Chunk.document_id == doc_id))
+        chunks = result.scalars().all()
+        assert len(chunks) > 0
+
+    assert doc_svc._qdrant.upsert.called
+
+
+@pytest.mark.asyncio
 async def test_reindex_wrong_session_returns_404(rag_client: AsyncClient):
     from app.main import app
     from datetime import UTC, datetime
