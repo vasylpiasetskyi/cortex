@@ -1,4 +1,3 @@
-import asyncio
 from abc import ABC, abstractmethod
 
 from openai import AsyncOpenAI
