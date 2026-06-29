@@ -59,7 +59,7 @@ class RAGService:
             raise ValueError("question must not be empty")
 
         if strategy not in self._strategies:
-            raise KeyError(f"Unknown strategy: {strategy}")
+            raise ValueError(f"Unknown strategy: {strategy}")
 
         if document_id is not None:
             doc = await self._doc_svc.get_document(document_id, session_id)

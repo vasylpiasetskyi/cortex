@@ -22,8 +22,6 @@ async def ask(body: AskRequest, request: Request) -> AskResponse:
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except KeyError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EmbeddingModelMismatchError as exc:
