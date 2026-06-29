@@ -45,7 +45,7 @@ class RAGService:
         self._strategies: dict[str, RetrieverStrategy] = {
             "baseline": BaselineRetriever(qdrant_client),
             "sentence_window": SentenceWindowRetriever(qdrant_client, session_factory),
-            "auto_merging": AutoMergingRetriever(qdrant_client),
+            "auto_merging": AutoMergingRetriever(qdrant_client, session_factory),
         }
 
     async def ask(
@@ -79,12 +79,14 @@ class RAGService:
         retrieved = await retriever.retrieve(query_vector, session_id, document_id, TOP_K)
 
         if retrieved:
-            chunk_ids = [rc.chunk_id for rc in retrieved]
-            async with self._session_factory() as session:
-                result = await session.execute(select(Chunk).where(Chunk.id.in_(chunk_ids)))
-                chunks_by_id = {c.id: c.text for c in result.scalars()}
-            for rc in retrieved:
-                rc.text = chunks_by_id.get(rc.chunk_id, "")
+            needs_text = [rc for rc in retrieved if not rc.text]
+            if needs_text:
+                chunk_ids = [rc.chunk_id for rc in needs_text]
+                async with self._session_factory() as session:
+                    result = await session.execute(select(Chunk).where(Chunk.id.in_(chunk_ids)))
+                    chunks_by_id = {c.id: c.text for c in result.scalars()}
+                for rc in needs_text:
+                    rc.text = chunks_by_id.get(rc.chunk_id, "")
 
         messages = _build_prompt(question, retrieved)
         completion = await self._openai.complete_with_tools(messages, [])

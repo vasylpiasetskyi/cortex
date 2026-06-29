@@ -234,7 +234,111 @@ async def test_sentence_window_neighbors_inherit_match_score(rag_client):
 
 
 @pytest.mark.asyncio
-async def test_auto_merging_raises_not_implemented():
-    retriever = AutoMergingRetriever(MagicMock())
-    with pytest.raises(NotImplementedError):
-        await retriever.retrieve([0.1] * 1536, "sess-1", None, 5)
+async def test_auto_merging_merges_when_ratio_exceeds_threshold(rag_client):
+    from datetime import UTC, datetime
+
+    from app.main import app
+    from app.models.document import Chunk, Document, DocumentStatus
+    from app.retrieval.auto_merging import AutoMergingRetriever
+
+    async with app.state.session_factory() as session:
+        doc = Document(
+            session_id="am-merge",
+            filename="f.pdf",
+            file_path="x",
+            file_size=0,
+            status=DocumentStatus.ready,
+            created_at=datetime.now(UTC),
+        )
+        session.add(doc)
+        await session.flush()
+        doc_id = doc.id
+        chunk_objs = [
+            Chunk(document_id=doc_id, text=f"text {i}", page=0, chunk_index=i, token_count=10)
+            for i in range(4)
+        ]
+        session.add_all(chunk_objs)
+        await session.flush()
+        chunk_ids = [c.id for c in chunk_objs]
+        await session.commit()
+
+    # 3 of 4 chunks match → ratio 0.75 ≥ MERGE_RATIO (0.5) → merge
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.points = [
+        make_scored_point(chunk_ids[0], doc_id, "am-merge", 0, 0, 0.9),
+        make_scored_point(chunk_ids[1], doc_id, "am-merge", 0, 1, 0.85),
+        make_scored_point(chunk_ids[2], doc_id, "am-merge", 0, 2, 0.80),
+    ]
+    mock_client.query_points = AsyncMock(return_value=mock_response)
+
+    retriever = AutoMergingRetriever(mock_client, app.state.session_factory)
+    results = await retriever.retrieve([0.1] * 1536, "am-merge", doc_id, top_k=3)
+
+    # Should merge into one chunk with all page text
+    assert len(results) == 1
+    assert results[0].score == 0.9  # best match score
+    assert "text 0" in results[0].text
+    assert "text 3" in results[0].text  # non-matched chunk also included
+
+
+@pytest.mark.asyncio
+async def test_auto_merging_keeps_individual_when_below_threshold(rag_client):
+    from datetime import UTC, datetime
+
+    from app.main import app
+    from app.models.document import Chunk, Document, DocumentStatus
+    from app.retrieval.auto_merging import AutoMergingRetriever
+
+    async with app.state.session_factory() as session:
+        doc = Document(
+            session_id="am-nomerge",
+            filename="f.pdf",
+            file_path="x",
+            file_size=0,
+            status=DocumentStatus.ready,
+            created_at=datetime.now(UTC),
+        )
+        session.add(doc)
+        await session.flush()
+        doc_id = doc.id
+        chunk_objs = [
+            Chunk(document_id=doc_id, text=f"text {i}", page=0, chunk_index=i, token_count=10)
+            for i in range(6)
+        ]
+        session.add_all(chunk_objs)
+        await session.flush()
+        chunk_ids = [c.id for c in chunk_objs]
+        await session.commit()
+
+    # 2 of 6 chunks match → ratio 0.33 < MERGE_RATIO (0.5) → no merge
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.points = [
+        make_scored_point(chunk_ids[0], doc_id, "am-nomerge", 0, 0, 0.9),
+        make_scored_point(chunk_ids[1], doc_id, "am-nomerge", 0, 1, 0.85),
+    ]
+    mock_client.query_points = AsyncMock(return_value=mock_response)
+
+    retriever = AutoMergingRetriever(mock_client, app.state.session_factory)
+    results = await retriever.retrieve([0.1] * 1536, "am-nomerge", doc_id, top_k=2)
+
+    # Individual chunks returned, text not pre-populated by retriever
+    assert len(results) == 2
+    assert all(r.text == "" for r in results)
+
+
+@pytest.mark.asyncio
+async def test_auto_merging_returns_empty_for_no_matches(rag_client):
+    from app.main import app
+    from app.retrieval.auto_merging import AutoMergingRetriever
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.points = []
+    mock_client.query_points = AsyncMock(return_value=mock_response)
+
+    retriever = AutoMergingRetriever(mock_client, app.state.session_factory)
+    results = await retriever.retrieve([0.1] * 1536, "am-empty", None, top_k=5)
+
+    assert results == []
