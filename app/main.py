@@ -18,6 +18,7 @@ from app.services.chat_service import ChatService
 from app.services.chunking_service import ChunkingService
 from app.services.conversation_service import ConversationService
 from app.services.document_service import DocumentService
+from app.services.embedding_backends import LocalBackend, OpenAIBackend
 from app.services.embedding_service import EmbeddingService
 from app.services.openai_service import OpenAIService, OpenAIServiceError
 from app.services.parser_service import ParserService
@@ -45,17 +46,25 @@ def setup_logging() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # noqa: F811
+async def lifespan(app: FastAPI):
     setup_logging()
+
+    openai_svc = OpenAIService(settings.openai_api_key, settings.model)
+
+    if settings.embedding_backend == "local":
+        backend = LocalBackend(settings.local_embedding_model)
+    else:
+        backend = OpenAIBackend(openai_svc.client)
+    embedding_svc = EmbeddingService(backend)
+
     redis = get_redis(settings.redis_url)
     engine = get_engine(settings.database_url)
     await init_db(engine)
     session_factory = get_session_factory(engine)
 
     qdrant = get_qdrant_client(settings.qdrant_url)
-    await init_collection(qdrant)
+    await init_collection(qdrant, embedding_svc.vector_size)
 
-    openai_svc = OpenAIService(settings.openai_api_key, settings.model)
     conv_svc = ConversationService(redis, session_factory)
     app.state.chat_service = ChatService(openai_svc, conv_svc, settings.system_prompt)
     app.state.qdrant = qdrant
@@ -64,8 +73,6 @@ async def lifespan(app: FastAPI):  # noqa: F811
 
     parser = ParserService()
     chunker = ChunkingService()
-    from app.services.embedding_backends import OpenAIBackend
-    embedding_svc = EmbeddingService(OpenAIBackend(openai_svc.client))
     doc_svc = DocumentService(session_factory, parser, chunker, embedding_svc, qdrant)
 
     app.state.doc_service = doc_svc
@@ -109,6 +116,4 @@ async def qdrant_error_handler(request, exc: QdrantError):
 
 if __name__ == "__main__":
     import uvicorn
-
-    # uvicorn.run("app.main:app", reload=True, port=8000)
     uvicorn.run("app.main:app", reload=False, port=8000)

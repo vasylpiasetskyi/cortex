@@ -23,6 +23,44 @@ class EmbeddingBackend(ABC):
     async def embed_batch(self, texts: list[str], batch_size: int = 100) -> list[list[float]]: ...
 
 
+class LocalBackend(EmbeddingBackend):
+    """Sentence-transformers backend for local inference."""
+
+    def __init__(self, model_name: str) -> None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as e:
+            raise ImportError(
+                "sentence-transformers is required for LocalBackend. "
+                "Install it with: uv add sentence-transformers"
+            ) from e
+        import asyncio
+
+        self._model_name = model_name
+        self._model = SentenceTransformer(model_name)
+        self._loop = asyncio.get_event_loop
+        sample = self._model.encode("probe")
+        self.vector_size: int = len(sample)
+
+    @property
+    def model_id(self) -> str:
+        return f"local:{self._model_name}"
+
+    async def embed(self, text: str) -> list[float]:
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        vector = await loop.run_in_executor(None, self._model.encode, text)
+        return vector.tolist()
+
+    async def embed_batch(self, texts: list[str], batch_size: int = 100) -> list[list[float]]:
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        vectors = await loop.run_in_executor(None, self._model.encode, texts)
+        return [v.tolist() for v in vectors]
+
+
 class OpenAIBackend(EmbeddingBackend):
     vector_size = 1536
 

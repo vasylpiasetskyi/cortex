@@ -33,3 +33,7 @@ docker-up:  ## start Redis and Postgres.
 .PHONY: docker-down
 docker-down:  ## stop all containers.
 	docker compose down
+
+.PHONY: reset-vectors
+reset-vectors:  ## delete Qdrant collection (run when switching embedding backend).
+	curl -X DELETE http://localhost:6333/collections/cortex_chunks

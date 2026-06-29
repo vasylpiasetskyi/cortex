@@ -38,7 +38,6 @@ def make_mock_openai(responses=None):
             if "weather" in last_user_msg.lower() and not any(
                 m.get("role") == "tool" for m in messages
             ):
-                # First call: return tool_calls response
                 mock_tool_call = MagicMock()
                 mock_tool_call.id = "call_123"
                 mock_tool_call.function.name = "get_weather"
@@ -52,14 +51,11 @@ def make_mock_openai(responses=None):
                 mock_response.usage.total_tokens = 15
                 return mock_response
             else:
-                # Normal response (including second call after tool result)
-                # Check if user messages in history establish a fact we can recall
                 import re
 
-                # Only scan user-role messages (not assistant responses) for "named X" facts
                 user_history = [
                     m.get("content", "")
-                    for m in messages[:-1]  # exclude current question
+                    for m in messages[:-1]
                     if m.get("role") == "user"
                 ]
                 named_match = None
@@ -69,7 +65,6 @@ def make_mock_openai(responses=None):
                         named_match = m.group(1)
                 if named_match:
                     return make_response(f"Your dog is named {named_match}.")
-                # If there's a tool result in history, respond using it
                 tool_results = [m for m in messages if m.get("role") == "tool"]
                 if tool_results:
                     tool_content = tool_results[-1].get("content", "")
@@ -77,6 +72,18 @@ def make_mock_openai(responses=None):
                 return make_response(next(response_iter))
 
     mock_client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
+
+    # embeddings mock — returns one vector per input text
+    async def embed_side_effect(*args, **kwargs):
+        inp = kwargs.get("input", [])
+        if isinstance(inp, str):
+            inp = [inp]
+        response = MagicMock()
+        response.data = [MagicMock(embedding=[0.1] * 1536) for _ in inp]
+        return response
+
+    mock_client.embeddings = MagicMock()
+    mock_client.embeddings.create = AsyncMock(side_effect=embed_side_effect)
 
     mock_person = MagicMock()
     mock_person.name = "John Smith"
@@ -93,9 +100,55 @@ def make_mock_openai(responses=None):
     return mock_client
 
 
+def make_mock_qdrant():
+    mock_qdrant = MagicMock()
+
+    # get_collections returns object with empty collections list
+    mock_collections = MagicMock()
+    mock_collections.collections = []
+    mock_qdrant.get_collections = AsyncMock(return_value=mock_collections)
+    mock_qdrant.create_collection = AsyncMock(return_value=None)
+
+    mock_collection_info = MagicMock()
+    mock_collection_info.config.params.vectors.size = 1536
+    mock_qdrant.get_collection = AsyncMock(return_value=mock_collection_info)
+
+    # query_points returns empty points list by default
+    mock_points_response = MagicMock()
+    mock_points_response.points = []
+    mock_qdrant.query_points = AsyncMock(return_value=mock_points_response)
+
+    # upsert / delete return None
+    mock_qdrant.upsert = AsyncMock(return_value=None)
+    mock_qdrant.delete = AsyncMock(return_value=None)
+
+    # close
+    mock_qdrant.close = AsyncMock(return_value=None)
+
+    return mock_qdrant
+
+
 @pytest_asyncio.fixture
 async def client():
-    with patch("app.services.openai_service.AsyncOpenAI", return_value=make_mock_openai()):
+    with (
+        patch("app.services.openai_service.AsyncOpenAI", return_value=make_mock_openai()),
+        patch("app.storage.qdrant.AsyncQdrantClient", return_value=make_mock_qdrant()),
+    ):
+        from app.main import app
+
+        async with app.router.lifespan_context(app), AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            yield c
+
+
+@pytest_asyncio.fixture
+async def rag_client():
+    """Client with both OpenAI (including embeddings) and Qdrant mocked."""
+    with (
+        patch("app.services.openai_service.AsyncOpenAI", return_value=make_mock_openai()),
+        patch("app.storage.qdrant.AsyncQdrantClient", return_value=make_mock_qdrant()),
+    ):
         from app.main import app
 
         async with app.router.lifespan_context(app), AsyncClient(
