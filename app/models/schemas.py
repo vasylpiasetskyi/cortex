@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -51,7 +52,7 @@ class AskRequest(BaseModel):
     session_id: str
     question: str
     document_id: int | None = None
-    strategy: str = "baseline"
+    strategy: Literal["baseline", "sentence_window", "auto_merging"] = "baseline"
 
 
 class AskResponse(BaseModel):
