@@ -38,6 +38,7 @@ class DocumentUploadResponse(BaseModel):
     id: int
     filename: str
     status: str
+    file_size: int
 
 
 class SourceOut(BaseModel):

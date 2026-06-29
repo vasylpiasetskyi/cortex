@@ -27,7 +27,7 @@ async def upload_document(
     doc = await doc_svc.create_document(session_id, file.filename or "upload.pdf", file_bytes)
     background_tasks.add_task(doc_svc._index_document, doc.id)
 
-    return DocumentUploadResponse(id=doc.id, filename=doc.filename, status=doc.status)
+    return DocumentUploadResponse(id=doc.id, filename=doc.filename, status=doc.status, file_size=doc.file_size)
 
 
 @router.get("", response_model=list[DocumentOut])
@@ -66,4 +66,4 @@ async def reindex_document(
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     background_tasks.add_task(doc_svc._index_document, doc.id)
-    return DocumentUploadResponse(id=doc.id, filename=doc.filename, status=doc.status)
+    return DocumentUploadResponse(id=doc.id, filename=doc.filename, status=doc.status, file_size=doc.file_size)
