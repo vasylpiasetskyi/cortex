@@ -44,7 +44,7 @@ class RAGService:
         self._session_factory = session_factory
         self._strategies: dict[str, RetrieverStrategy] = {
             "baseline": BaselineRetriever(qdrant_client),
-            "sentence_window": SentenceWindowRetriever(qdrant_client),
+            "sentence_window": SentenceWindowRetriever(qdrant_client, session_factory),
             "auto_merging": AutoMergingRetriever(qdrant_client),
         }
 

@@ -132,7 +132,7 @@ async def test_ask_indexing_document_returns_409(rag_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_ask_sentence_window_strategy_returns_501(rag_client: AsyncClient):
+async def test_ask_sentence_window_strategy_returns_200(rag_client: AsyncClient):
     from app.main import app
 
     doc_id, _ = await seed_ready_document(app, session_id="strat-sess")
@@ -142,7 +142,8 @@ async def test_ask_sentence_window_strategy_returns_501(rag_client: AsyncClient)
         "document_id": doc_id,
         "strategy": "sentence_window",
     })
-    assert resp.status_code == 501
+    assert resp.status_code == 200
+    assert "answer" in resp.json()
 
 
 @pytest.mark.asyncio
