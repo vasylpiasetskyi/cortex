@@ -37,6 +37,7 @@ A production-ready AI backend service. Training project covering FastAPI, OpenAI
 | `GET` | `/documents` | List all documents for a session |
 | `GET` | `/documents/{id}` | Get document status / error |
 | `DELETE` | `/documents/{id}` | Delete document, chunks, and vectors |
+| `POST` | `/documents/{id}/reindex` | Re-index with current embedding backend (202) |
 | `POST` | `/ask` | Ask a question against indexed documents |
 
 ### POST /chat
@@ -133,9 +134,9 @@ POST /documents
      a. pypdf   → [{page, text}]  (empty pages skipped)
      b. tiktoken cl100k_base → chunks (800 tokens, 150 overlap, step 650)
      c. INSERT chunks bulk
-     d. OpenAI text-embedding-3-small → 1536-dim vectors
+     d. EmbeddingService.embed_batch → vectors (OpenAI 1536-dim or local 768-dim)
      e. Qdrant upsert → collection cortex_chunks
-     f. UPDATE status=ready
+     f. UPDATE status=ready, embedding_model=<backend model id>
      g. On error: status=error, cleanup partial Postgres rows + Qdrant vectors
 ```
 
@@ -153,11 +154,11 @@ POST /ask
 
 ### Retrieval Strategies
 
-| Strategy | Status |
+| Strategy | Description |
 |---|---|
-| `baseline` | Implemented — plain vector search |
-| `sentence_window` | Stub — returns 501 |
-| `auto_merging` | Stub — returns 501 |
+| `baseline` | Plain Qdrant vector search, top-k results |
+| `sentence_window` | Expands each match to ±2 neighboring chunks (same page) fetched from Postgres; neighbors inherit the parent match score; overlapping windows are deduplicated |
+| `auto_merging` | Groups matches by `(document_id, page)`; if matched/total chunks on page ≥ 0.5, replaces them with the full page text as a single merged chunk |
 
 ## Project Structure
 
@@ -169,22 +170,24 @@ cortex/
 │   │   ├── documents.py         # /documents CRUD
 │   │   └── rag.py               # /ask
 │   ├── services/
-│   │   ├── openai_service.py    # OpenAI wrapper (complete, stream, extract, embed)
+│   │   ├── openai_service.py        # OpenAI wrapper (complete, stream, extract)
 │   │   ├── conversation_service.py  # Redis + Postgres history
-│   │   ├── chat_service.py      # Chat orchestration + tool loop
-│   │   ├── document_service.py  # Upload pipeline, indexing, CRUD
-│   │   ├── parser_service.py    # PDF → [{page, text}]
-│   │   ├── chunking_service.py  # Pages → token chunks
-│   │   ├── embedding_service.py # Texts → vectors
-│   │   └── rag_service.py       # Retrieval + generation orchestration
+│   │   ├── chat_service.py          # Chat orchestration + tool loop
+│   │   ├── document_service.py      # Upload pipeline, indexing, CRUD, reindex
+│   │   ├── parser_service.py        # PDF → [{page, text}]
+│   │   ├── chunking_service.py      # Pages → token chunks (800/150/650)
+│   │   ├── embedding_backends.py    # EmbeddingBackend ABC, OpenAIBackend, LocalBackend
+│   │   ├── embedding_service.py     # Thin wrapper over EmbeddingBackend
+│   │   └── rag_service.py           # Retrieval + generation orchestration
 │   ├── retrieval/
 │   │   ├── base.py              # RetrieverStrategy ABC + RetrievedChunk
-│   │   ├── baseline.py          # Vector search
-│   │   ├── sentence_window.py   # Stub
-│   │   └── auto_merging.py      # Stub
+│   │   ├── baseline.py          # Plain vector search
+│   │   ├── sentence_window.py   # Neighboring chunk expansion (WINDOW_SIZE=2)
+│   │   └── auto_merging.py      # Page-level merge (MERGE_RATIO=0.5)
 │   ├── tools/
 │   │   ├── registry.py          # Tool schemas + dispatcher
-│   │   └── weather.py           # Demo get_weather tool
+│   │   ├── weather.py           # get_weather tool
+│   │   └── calculator.py        # calculate tool (safe AST eval)
 │   ├── models/
 │   │   ├── schemas.py           # Pydantic request/response models
 │   │   ├── db.py                # SQLAlchemy Message model
@@ -206,6 +209,7 @@ cortex/
 │   ├── test_chunking.py
 │   ├── test_parser.py
 │   ├── test_embedding.py
+│   ├── test_embedding_backends.py
 │   ├── test_rag.py
 │   └── test_retrieval.py
 ├── docker-compose.yml
@@ -261,20 +265,24 @@ DATABASE_URL=postgresql+asyncpg://cortex:cortex@localhost:5432/cortex
 QDRANT_URL=http://localhost:6333
 MODEL=gpt-4o-mini
 SYSTEM_PROMPT=You are a helpful assistant.
+EMBEDDING_BACKEND=openai          # "openai" (default) | "local"
+LOCAL_EMBEDDING_MODEL=paraphrase-multilingual-mpnet-base-v2
 ```
 
 `SYSTEM_PROMPT` is optional. `QDRANT_URL` is overridden to `http://qdrant:6333` automatically in Docker Compose.
+
+`EMBEDDING_BACKEND=local` uses sentence-transformers on CPU (768-dim vectors). Install with `uv sync --extra local`. If you switch backends, run `make reset-vectors` and reindex existing documents — vectors from different backends are incompatible.
 
 ## Tests
 
 OpenAI and Qdrant are fully mocked — no real API keys needed. Requires Redis and Postgres:
 
 ```bash
-docker compose up redis postgres -d
+docker compose up redis postgres qdrant -d
 uv run pytest tests/ -v
 ```
 
-38 tests, ~2 seconds.
+55 tests. OpenAI and Qdrant are mocked; Redis and Postgres run in Docker.
 
 ## Storage Architecture
 
