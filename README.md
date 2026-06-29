@@ -1,16 +1,19 @@
 # Cortex
 
-A production-ready AI chat backend service. Training project covering FastAPI, OpenAI Chat Completions, Redis caching, Postgres persistence, SSE streaming, function calling, and structured outputs.
+A production-ready AI backend service. Training project covering FastAPI, OpenAI Chat Completions, Redis caching, Postgres persistence, SSE streaming, function calling, structured outputs, and RAG (Retrieval-Augmented Generation) with PDF documents.
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
 | Web framework | FastAPI + Uvicorn |
-| AI | OpenAI SDK (Chat Completions) |
+| AI | OpenAI SDK (Chat Completions, Embeddings) |
+| Vector DB | Qdrant (async client) |
 | Cache | Redis 7 (redis-py asyncio) |
 | Database | Postgres 16 + SQLAlchemy 2 async + Alembic |
 | Validation | Pydantic v2 + pydantic-settings |
+| PDF parsing | pypdf |
+| Token counting | tiktoken |
 | Logging | Loguru |
 | Containers | Docker Compose |
 | Package manager | uv |
@@ -18,11 +21,23 @@ A production-ready AI chat backend service. Training project covering FastAPI, O
 
 ## API
 
+### Chat
+
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/chat` | Send a message, get a full response |
 | `POST` | `/chat/stream` | Send a message, get an SSE-streamed response |
 | `POST` | `/extract` | Extract structured data (Person) from free text |
+
+### Document Intelligence
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/documents` | Upload a PDF, start async indexing (202) |
+| `GET` | `/documents` | List all documents for a session |
+| `GET` | `/documents/{id}` | Get document status / error |
+| `DELETE` | `/documents/{id}` | Delete document, chunks, and vectors |
+| `POST` | `/ask` | Ask a question against indexed documents |
 
 ### POST /chat
 
@@ -64,33 +79,135 @@ Content-Type: application/json
 {"name": "John Smith", "age": 35}
 ```
 
+### POST /documents
+
+```http
+POST /documents
+Content-Type: multipart/form-data
+
+file=<pdf> session_id=abc
+```
+
+```json
+{"id": 1, "filename": "contract.pdf", "status": "indexing"}
+```
+
+Indexing runs in the background. Poll `GET /documents/{id}` until `status` is `ready` or `error`.
+
+### POST /ask
+
+```http
+POST /ask
+Content-Type: application/json
+
+{
+  "session_id": "abc",
+  "question": "What is the cancellation policy?",
+  "document_id": 1,
+  "strategy": "baseline"
+}
+```
+
+```json
+{
+  "answer": "According to section 4.2...",
+  "sources": [
+    {"page": 4, "chunk_index": 12, "score": 0.91}
+  ],
+  "strategy": "baseline"
+}
+```
+
+`document_id` is optional — omit to search all ready documents in the session.
+
+## Document Intelligence
+
+### Upload Pipeline
+
+```
+POST /documents
+  1. Validate: PDF only, max 20 MB
+  2. Save → uploads/{uuid}.pdf
+  3. INSERT Document(status=indexing) → return 202
+  4. BackgroundTask:
+     a. pypdf   → [{page, text}]  (empty pages skipped)
+     b. tiktoken cl100k_base → chunks (800 tokens, 150 overlap, step 650)
+     c. INSERT chunks bulk
+     d. OpenAI text-embedding-3-small → 1536-dim vectors
+     e. Qdrant upsert → collection cortex_chunks
+     f. UPDATE status=ready
+     g. On error: status=error, cleanup partial Postgres rows + Qdrant vectors
+```
+
+### Retrieval Pipeline
+
+```
+POST /ask
+  1. Embed question → query vector (text-embedding-3-small)
+  2. Qdrant query_points (filter: session_id [+ document_id]) → top 5 chunks
+  3. SELECT text FROM chunks WHERE id IN (...) → enrich results
+  4. Build prompt: system = context blocks, user = question
+  5. OpenAI completion → answer
+  6. Return {answer, sources, strategy}
+```
+
+### Retrieval Strategies
+
+| Strategy | Status |
+|---|---|
+| `baseline` | Implemented — plain vector search |
+| `sentence_window` | Stub — returns 501 |
+| `auto_merging` | Stub — returns 501 |
+
 ## Project Structure
 
 ```
 cortex/
 ├── app/
-│   ├── api/chat.py              # Route handlers
+│   ├── api/
+│   │   ├── chat.py              # /chat, /chat/stream, /extract
+│   │   ├── documents.py         # /documents CRUD
+│   │   └── rag.py               # /ask
 │   ├── services/
-│   │   ├── openai_service.py    # OpenAI wrapper (complete, stream, extract)
+│   │   ├── openai_service.py    # OpenAI wrapper (complete, stream, extract, embed)
 │   │   ├── conversation_service.py  # Redis + Postgres history
-│   │   └── chat_service.py      # Orchestration + tool loop
+│   │   ├── chat_service.py      # Chat orchestration + tool loop
+│   │   ├── document_service.py  # Upload pipeline, indexing, CRUD
+│   │   ├── parser_service.py    # PDF → [{page, text}]
+│   │   ├── chunking_service.py  # Pages → token chunks
+│   │   ├── embedding_service.py # Texts → vectors
+│   │   └── rag_service.py       # Retrieval + generation orchestration
+│   ├── retrieval/
+│   │   ├── base.py              # RetrieverStrategy ABC + RetrievedChunk
+│   │   ├── baseline.py          # Vector search
+│   │   ├── sentence_window.py   # Stub
+│   │   └── auto_merging.py      # Stub
 │   ├── tools/
 │   │   ├── registry.py          # Tool schemas + dispatcher
 │   │   └── weather.py           # Demo get_weather tool
 │   ├── models/
 │   │   ├── schemas.py           # Pydantic request/response models
-│   │   └── db.py                # SQLAlchemy Message model
+│   │   ├── db.py                # SQLAlchemy Message model
+│   │   └── document.py          # Document, Chunk models + DocumentStatus enum
 │   ├── storage/
 │   │   ├── redis.py             # Redis client factory
-│   │   └── postgres.py          # Async engine + session factory
+│   │   ├── postgres.py          # Async engine + session factory
+│   │   └── qdrant.py            # AsyncQdrantClient factory
 │   ├── config.py                # pydantic-settings (reads .env)
 │   └── main.py                  # FastAPI app, lifespan, error handlers
 ├── migrations/                  # Alembic migrations
+├── uploads/                     # Uploaded PDFs (gitignored)
 ├── tests/
-│   ├── conftest.py              # Fixtures, OpenAI mock
+│   ├── conftest.py              # Fixtures, OpenAI + Qdrant mocks
 │   ├── test_chat.py
 │   ├── test_stream.py
-│   └── test_conversation.py
+│   ├── test_conversation.py
+│   ├── test_documents.py
+│   ├── test_chunking.py
+│   ├── test_parser.py
+│   ├── test_embedding.py
+│   ├── test_rag.py
+│   └── test_retrieval.py
 ├── docker-compose.yml
 ├── Dockerfile
 └── pyproject.toml
@@ -111,9 +228,11 @@ Services:
 | Service | URL |
 |---|---|
 | API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
 | Adminer (Postgres UI) | http://localhost:8080 |
 | Redis | localhost:6379 |
 | Postgres | localhost:5432 |
+| Qdrant | localhost:6333 |
 
 ### Local Development
 
@@ -122,10 +241,13 @@ Services:
 uv sync
 
 # Start infrastructure
-docker compose up redis postgres -d
+docker compose up redis postgres qdrant -d
+
+# Apply migrations
+uv run alembic upgrade head
 
 # Run the app
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
 ## Configuration
@@ -136,35 +258,39 @@ Copy `.env.example` to `.env` and fill in your values:
 OPENAI_API_KEY=sk-...
 REDIS_URL=redis://localhost:6379
 DATABASE_URL=postgresql+asyncpg://cortex:cortex@localhost:5432/cortex
+QDRANT_URL=http://localhost:6333
 MODEL=gpt-4o-mini
+SYSTEM_PROMPT=You are a helpful assistant.
 ```
+
+`SYSTEM_PROMPT` is optional. `QDRANT_URL` is overridden to `http://qdrant:6333` automatically in Docker Compose.
 
 ## Tests
 
-Tests run against real in-memory SQLite + Redis via Docker. OpenAI is fully mocked.
+OpenAI and Qdrant are fully mocked — no real API keys needed. Requires Redis and Postgres:
 
 ```bash
+docker compose up redis postgres -d
 uv run pytest tests/ -v
 ```
 
-All 9 tests run without a real OpenAI API key.
+38 tests, ~2 seconds.
 
 ## Storage Architecture
 
+### Chat: Postgres-primary + Redis-cache
+
 Postgres is the source of truth. Redis caches the last 20 messages per session (TTL 24h).
 
-- **Read**: Redis first → on cache miss, load from Postgres and repopulate Redis
+- **Read**: Redis first → on cache miss, load from Postgres and repopulate
 - **Write**: Postgres INSERT always, then Redis RPUSH + LTRIM (pipeline)
 
-## Function Calling
+### Documents: Postgres + Qdrant
 
-`ChatService.handle()` runs a tool loop:
-
-1. Send history + user message to OpenAI with tool schemas
-2. If `finish_reason == "tool_calls"`: execute the tool, append result, call OpenAI again
-3. Repeat until a plain text response arrives
-
-Current tools: `get_weather(city)` — returns hardcoded demo weather.
+- `documents` and `chunks` tables in Postgres (source of truth for text)
+- Qdrant collection `cortex_chunks`: vectors + payload `{chunk_id, document_id, session_id, page, chunk_index}`
+- Text stored only in Postgres; Qdrant holds vectors and the `chunk_id` pointer
+- After vector search: `SELECT text FROM chunks WHERE id IN (...)` to enrich results
 
 ## Migrations
 
@@ -174,4 +300,7 @@ uv run alembic revision --autogenerate -m "description"
 
 # Apply migrations
 uv run alembic upgrade head
+
+# Rollback last migration
+uv run alembic downgrade -1
 ```
