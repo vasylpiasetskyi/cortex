@@ -16,6 +16,7 @@ class OpenAIServiceError(Exception):
 class CompletionResult:
     content: str | None
     finish_reason: str
+
     tool_calls: list | None
     tokens: int = 0
 
@@ -97,11 +98,10 @@ class OpenAIService:
         self, messages: list[dict], tools: list[dict]
     ) -> CompletionResult:
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-            )
+            kwargs: dict = {"model": self.model, "messages": messages}
+            if tools:
+                kwargs["tools"] = tools
+            response = await self.client.chat.completions.create(**kwargs)
         except Exception as exc:
             raise OpenAIServiceError(str(exc)) from exc
         choice = response.choices[0]

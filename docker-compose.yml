@@ -7,9 +7,11 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
       DATABASE_URL: postgresql+asyncpg://cortex:cortex@postgres:5432/cortex
+      QDRANT_URL: http://qdrant:6333
     depends_on:
       - redis
       - postgres
+      - qdrant
 
   redis:
     image: redis:7-alpine
@@ -34,5 +36,13 @@ services:
     depends_on:
       - postgres
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
 volumes:
   postgres_data:
+  qdrant_data:
