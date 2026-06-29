@@ -58,6 +58,7 @@ async def test_local_backend_embed():
         result = await backend.embed("hello")
 
     assert len(result) == 768
+    assert mock_model.encode.call_count == 2  # once for probe in __init__, once for embed
 
 
 @pytest.mark.asyncio
